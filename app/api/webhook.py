@@ -1,10 +1,10 @@
-from fastapi import APIRouter, Request, Response, status
-import logging
 import os
 import requests
-from app.services.gemini_service import classify_text_intent, generate_embedding, generate_rag_response
+from fastapi import APIRouter, Request, Response, status
+import logging
+from app.services.gemini_service import classify_text_intent, generate_embedding, generate_rag_response, extract_media_content
+from app.services.telegram_service import download_telegram_file
 from app.db.supabase_client import get_db
-
 router = APIRouter(prefix="/telegram", tags=["Telegram Webhook"])
 logger = logging.getLogger("app.webhook")
 
@@ -16,14 +16,65 @@ async def telegram_webhook_entry(request: Request):
     """
     try:
         payload = await request.json()
-        
-        # Extract metadata
         message_data = payload.get("message", {})
-        user_text = message_data.get("text", "")
         telegram_id = message_data.get("from", {}).get("id")
         username = message_data.get("from", {}).get("username", "unknown")
         
-        if user_text and telegram_id:
+        if not telegram_id:
+            return Response(status_code=status.HTTP_200_OK)
+
+        print(f"\n--- NEW INCOMING MESSAGE ---")
+        
+        # Determine exactly what kind of payload this is
+        user_text = message_data.get("text", "")
+        caption = message_data.get("caption", "")
+        
+        file_id = None
+        file_ext = ""
+        media_type = ""
+        
+        # Check for various Telegram attachment types
+        if "photo" in message_data:
+            # Telegram sends multiple sizes of photos, the last one is the highest quality
+            file_id = message_data["photo"][-1]["file_id"]
+            file_ext = "jpg"
+            media_type = "image"
+        elif "voice" in message_data:
+            file_id = message_data["voice"]["file_id"]
+            file_ext = "ogg"
+            media_type = "audio"
+        elif "document" in message_data:
+            file_id = message_data["document"]["file_id"]
+            file_ext = "pdf" # Defaulting to pdf for documents
+            media_type = "document"
+        elif "video" in message_data:
+            file_id = message_data["video"]["file_id"]
+            file_ext = "mp4"
+            media_type = "video"
+
+        # If it's a media file, process it before doing standard vector insertion
+        if file_id:
+            print(f"📎 {media_type.capitalize()} attachment detected! Downloading...")
+            try:
+                # 1. Download to local Docker container
+                local_path = download_telegram_file(file_id, file_ext)
+                
+                # 2. Extract text using Gemini
+                extracted_text = extract_media_content(local_path, media_type, caption)
+                print(f"🧠 Extracted Media Content: {extracted_text[:100]}...")
+                
+                # 3. Clean up the local temporary file
+                os.remove(local_path)
+                
+                # 4. Override the user_text variable so the rest of the RAG pipeline processes it normally!
+                user_text = f"[{media_type.upper()} UPLOAD] Caption: {caption}\nExtracted Content: {extracted_text}"
+                
+            except Exception as e:
+                print(f"❌ Failed to process media: {e}")
+                return Response(status_code=status.HTTP_200_OK)
+                
+        # If there is no text AND no media, ignore it
+        if not user_text:
             print(f"\n--- NEW MESSAGE ---")
             print(f"User {telegram_id} says: '{user_text}'")
             

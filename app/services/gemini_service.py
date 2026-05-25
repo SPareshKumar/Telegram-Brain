@@ -115,3 +115,41 @@ def generate_rag_response(question: str, context_notes: list[str]) -> str:
     except Exception as e:
         print(f"❌ RAG Generation Error: {e}")
         return "I'm having trouble thinking right now. Please try again."
+    
+
+@observe(name="multimodal_extraction")
+def extract_media_content(local_file_path: str, media_type: str, user_caption: str = "") -> str:
+    """
+    Uploads media to Gemini, extracts the context/text, and returns a comprehensive summary.
+    """
+    try:
+        # 1. Upload the file to Google's temporary generative storage
+        print(f"Uploading {media_type} to Gemini...")
+        uploaded_file = client.files.upload(file=local_file_path)
+        
+        # 2. Craft a dynamic prompt based on the media type
+        prompt = f"Analyze this {media_type}."
+        if user_caption:
+            prompt += f" The user provided this context: '{user_caption}'."
+            
+        prompt += """
+        Provide a highly detailed, comprehensive text extraction and summary of this file. 
+        If it's an image of text or a PDF, transcribe the important parts. 
+        If it's audio/video, summarize the transcription and visual events.
+        Make it detailed enough that a vector search engine can index it accurately.
+        """
+        
+        # 3. Generate the extraction using our current 3.5-flash model
+        response = client.models.generate_content(
+            model='gemini-3.5-flash',
+            contents=[uploaded_file, prompt]
+        )
+        
+        # 4. Clean up Google's servers by deleting the file after processing
+        client.files.delete(name=uploaded_file.name)
+        
+        return response.text
+        
+    except Exception as e:
+        print(f"❌ Media Extraction Error: {e}")
+        return f"Failed to extract content from the {media_type}."

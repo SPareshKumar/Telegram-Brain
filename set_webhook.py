@@ -4,15 +4,14 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-# Get your token from the .env file
 TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 
-# IMPORTANT: Paste your exact Ngrok URL here, and make sure it ends with /telegram/webhook
-NGROK_URL = "https://7198-183-83-159-175.ngrok-free.app/telegram/webhook"
+# Your new permanent production cloud URL!
+WEBHOOK_URL = "https://mindmap-ai-5ip8.onrender.com/telegram/webhook"
 
-url = f"https://api.telegram.org/bot{TOKEN}/setWebhook?url={NGROK_URL}"
+url = f"https://api.telegram.org/bot{TOKEN}/setWebhook?url={WEBHOOK_URL}"
 
-print(f"Setting webhook to: {NGROK_URL}")
+print(f"Setting webhook to: {WEBHOOK_URL}")
 response = requests.get(url)
 
 print("Telegram API Response:")
