@@ -123,11 +123,25 @@ def extract_media_content(local_file_path: str, media_type: str, user_caption: s
     Uploads media to Gemini, extracts the context/text, and returns a comprehensive summary.
     """
     try:
-        # 1. Upload the file to Google's temporary generative storage
-        print(f"Uploading {media_type} to Gemini...")
-        uploaded_file = client.files.upload(file=local_file_path)
+        # 1. Manually map the MIME type to prevent Docker "slim" container errors
+        explicit_mime = None
+        if local_file_path.endswith('.ogg'):
+            explicit_mime = 'audio/ogg'
+        elif local_file_path.endswith('.jpg'):
+            explicit_mime = 'image/jpeg'
+        elif local_file_path.endswith('.mp4'):
+            explicit_mime = 'video/mp4'
+        elif local_file_path.endswith('.pdf'):
+            explicit_mime = 'application/pdf'
+
+        # 2. Upload the file, explicitly passing the mime_type
+        print(f"Uploading {media_type} to Gemini (MIME: {explicit_mime})...")
+        uploaded_file = client.files.upload(
+            file=local_file_path, 
+            mime_type=explicit_mime
+        )
         
-        # 2. Craft a dynamic prompt based on the media type
+        # 3. Craft a dynamic prompt based on the media type
         prompt = f"Analyze this {media_type}."
         if user_caption:
             prompt += f" The user provided this context: '{user_caption}'."
@@ -139,13 +153,13 @@ def extract_media_content(local_file_path: str, media_type: str, user_caption: s
         Make it detailed enough that a vector search engine can index it accurately.
         """
         
-        # 3. Generate the extraction using our current 3.5-flash model
+        # 4. Generate the extraction
         response = client.models.generate_content(
             model='gemini-3.5-flash',
             contents=[uploaded_file, prompt]
         )
         
-        # 4. Clean up Google's servers by deleting the file after processing
+        # 5. Clean up Google's servers
         client.files.delete(name=uploaded_file.name)
         
         return response.text
