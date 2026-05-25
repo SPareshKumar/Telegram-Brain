@@ -134,12 +134,16 @@ def extract_media_content(local_file_path: str, media_type: str, user_caption: s
         elif local_file_path.endswith('.pdf'):
             explicit_mime = 'application/pdf'
 
-        # 2. Upload the file, explicitly passing the mime_type
+        # 2. Upload the file, passing the mime_type via the config object
         print(f"Uploading {media_type} to Gemini (MIME: {explicit_mime})...")
-        uploaded_file = client.files.upload(
-            file=local_file_path, 
-            mime_type=explicit_mime
-        )
+        
+        if explicit_mime:
+            uploaded_file = client.files.upload(
+                file=local_file_path, 
+                config=types.UploadFileConfig(mime_type=explicit_mime)
+            )
+        else:
+            uploaded_file = client.files.upload(file=local_file_path)
         
         # 3. Craft a dynamic prompt based on the media type
         prompt = f"Analyze this {media_type}."
