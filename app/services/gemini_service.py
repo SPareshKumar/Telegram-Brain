@@ -63,3 +63,55 @@ def classify_text_intent(user_text: str) -> IntentResponse:
             is_sensitive=False, 
             summary="Unclassified payload"
         )
+    
+
+@observe(name="generate_vector")
+def generate_embedding(text: str) -> list[float]:
+    """
+    Converts cleartext into a 768-dimensional mathematical vector.
+    Uses gemini-embedding-2 with forced output truncation to match our database schema.
+    """
+    try:
+        # Use Google's latest embedding model and explicitly compress to 768 dimensions
+        result = client.models.embed_content(
+            model='gemini-embedding-2',
+            contents=text,
+            config=types.EmbedContentConfig(output_dimensionality=768)
+        )
+        # Extract the raw floating-point array
+        return result.embeddings[0].values
+        
+    except Exception as e:
+        print(f"❌ Vector Generation Error: {e}")
+        return []
+    
+@observe(name="rag_synthesis")
+def generate_rag_response(question: str, context_notes: list[str]) -> str:
+    """
+    Takes the retrieved database notes and synthesizes a natural language answer.
+    """
+    # Combine the retrieved notes into a single context block
+    context_text = "\n- ".join(context_notes)
+    
+    system_prompt = f"""
+    You are the voice of the user's Digital Second Brain.
+    Answer the user's question using ONLY the provided context notes.
+    If the answer is not contained in the notes, say "I don't have that in my memory."
+    Keep your answer concise, conversational, and direct.
+    
+    CONTEXT NOTES:
+    - {context_text}
+    
+    USER QUESTION:
+    {question}
+    """
+    
+    try:
+        response = client.models.generate_content(
+            model='gemini-3.5-flash',
+            contents=system_prompt,
+        )
+        return response.text
+    except Exception as e:
+        print(f"❌ RAG Generation Error: {e}")
+        return "I'm having trouble thinking right now. Please try again."
