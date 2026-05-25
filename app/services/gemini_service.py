@@ -10,8 +10,12 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # Initialize the Gemini Client
-# It automatically picks up GEMINI_API_KEY from your .env file
-client = genai.Client()
+# Force the client to use the exact key from the .env file
+gemini_key = os.getenv("GEMINI_API_KEY")
+if not gemini_key:
+    raise ValueError("GEMINI_API_KEY is completely missing from the environment variables.")
+
+client = genai.Client(api_key=gemini_key)
 
 # Define the strict JSON structure we want Gemini to return
 class IntentResponse(BaseModel):
@@ -38,7 +42,7 @@ def classify_text_intent(user_text: str) -> IntentResponse:
     try:
         # Call Gemini 1.5 Flash for high-speed routing
         response = client.models.generate_content(
-            model='gemini-1.5-flash',
+            model='gemini-3.5-flash',
             contents=system_prompt,
             config=types.GenerateContentConfig(
                 response_mime_type="application/json",
