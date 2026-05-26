@@ -171,3 +171,40 @@ def extract_media_content(local_file_path: str, media_type: str, user_caption: s
     except Exception as e:
         print(f"❌ Media Extraction Error: {e}")
         return f"Failed to extract content from the {media_type}."
+    
+
+@observe(name="extract_graph")
+def extract_entities_and_relationships(text: str) -> dict:
+    """
+    Forces the LLM to extract a Knowledge Graph from the text in strict JSON format.
+    """
+    prompt = f"""
+    Analyze the following text and extract a Knowledge Graph.
+    Identify the core entities (nodes) and how they relate to each other (edges).
+    
+    Return ONLY a valid JSON object matching this exact schema:
+    {{
+        "nodes": [
+            {{"name": "Concept 1", "type": "Technology/Person/Company/etc"}}
+        ],
+        "edges": [
+            {{"source": "Concept 1", "target": "Concept 2", "relationship": "uses / relates to / is required for"}}
+        ]
+    }}
+
+    TEXT TO ANALYZE:
+    {text}
+    """
+    
+    try:
+        response = client.models.generate_content(
+            model='gemini-3.5-flash',
+            contents=prompt,
+            config=types.GenerateContentConfig(
+                response_mime_type="application/json"
+            )
+        )
+        return json.loads(response.text)
+    except Exception as e:
+        print(f"❌ Graph Extraction Error: {e}")
+        return {"nodes": [], "edges": []}

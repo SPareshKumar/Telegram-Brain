@@ -3,7 +3,7 @@ import requests
 from fastapi import APIRouter, Request, Response, status
 import logging
 
-from app.services.gemini_service import classify_text_intent, generate_embedding, generate_rag_response, extract_media_content
+from app.services.gemini_service import classify_text_intent, generate_embedding, generate_rag_response, extract_media_content, extract_entities_and_relationships
 from app.services.telegram_service import download_telegram_file
 from app.db.supabase_client import get_db
 
@@ -111,6 +111,32 @@ async def telegram_webhook_entry(request: Request):
                         "embedding": vector_array
                     }).execute()
                     print("✅ Vector successfully indexed in Supabase!")
+
+                # --- NEW GRAPH INGESTION BLOCK ---
+                print("🕸️ Extracting Knowledge Graph entities...")
+                graph_data = extract_entities_and_relationships(user_text)
+
+                # Insert Nodes
+                if graph_data.get("nodes"):
+                    for node in graph_data["nodes"]:
+                        db.table("nodes").insert({
+                            "telegram_id": telegram_id,
+                            "note_id": new_note_id,
+                            "entity_name": node.get("name", "").lower(),
+                            "entity_type": node.get("type", "").lower()
+                        }).execute()
+
+                # Insert Edges
+                if graph_data.get("edges"):
+                    for edge in graph_data["edges"]:
+                        db.table("edges").insert({
+                            "telegram_id": telegram_id,
+                            "source_entity_name": edge.get("source", "").lower(),
+                            "target_entity_name": edge.get("target", "").lower(),
+                            "relationship": edge.get("relationship", "").lower()
+                        }).execute()
+                print(f"🕸️ Graph indexed: {len(graph_data.get('nodes', []))} nodes, {len(graph_data.get('edges', []))} edges.")
+                # -------------------------------
                     
         elif intent.action == "query_data":
             print("🔍 Query detected. Initiating vector search...")
