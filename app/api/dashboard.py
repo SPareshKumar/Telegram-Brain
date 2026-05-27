@@ -54,7 +54,9 @@ async def view_dashboard(telegram_id: int):
                         .nodeId('id')
                         .nodeAutoColorBy('group')
                         .nodeLabel('id')
+                        .linkColor(() => '#ffffff')
                         .linkDirectionalArrowLength(3.5)
+                        .linkDirectionalArrowColor(() => '#ffffff')
                         .linkDirectionalArrowRelPos(1)
                         .linkLabel('label')
                         .onNodeDragEnd(node => {{
