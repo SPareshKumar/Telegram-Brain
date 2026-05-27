@@ -1,38 +1,27 @@
-from fastapi import APIRouter, Request, Response, status
+from fastapi import APIRouter, Response, status
 from fastapi.responses import HTMLResponse
-# ... (your existing imports)
+from app.db.supabase_client import get_db
 
-# 1. The API endpoint to fetch graph data
+# 💡 THIS IS THE CRUCIAL LINE THAT IS MISSING OR MISPLACED:
+router = APIRouter(prefix="/ui", tags=["Dashboard"])
+
 @router.get("/api/graph/{telegram_id}")
 async def get_user_graph(telegram_id: int):
-    """
-    Fetches all nodes and edges for a specific user and formats 
-    them for the frontend force-graph library.
-    """
     db = get_db()
-    
-    # Fetch data
     nodes_res = db.table("nodes").select("*").eq("telegram_id", telegram_id).execute()
     edges_res = db.table("edges").select("*").eq("telegram_id", telegram_id).execute()
     
-    # Format for D3 / force-graph (requires 'id' for nodes, and 'source'/'target' for links)
     graph_data = {
         "nodes": [{"id": n["entity_name"], "group": n["entity_type"]} for n in nodes_res.data],
         "links": [{"source": e["source_entity_name"], "target": e["target_entity_name"], "label": e["relationship"]} for e in edges_res.data]
     }
     
-    # Ensure no duplicate nodes exist
     unique_nodes = list({v['id']:v for v in graph_data["nodes"]}.values())
     graph_data["nodes"] = unique_nodes
-    
     return graph_data
 
-# 2. The Web Dashboard Endpoint
 @router.get("/dashboard/{telegram_id}")
 async def view_dashboard(telegram_id: int):
-    """
-    Serves the interactive frontend visualizing the user's mind map.
-    """
     html_content = f"""
     <!DOCTYPE html>
     <html lang="en">
@@ -56,11 +45,9 @@ async def view_dashboard(telegram_id: int):
         <div id="graph-container"></div>
 
         <script>
-            // Fetch the data from our new API endpoint
-            fetch('/telegram/api/graph/{telegram_id}')
+            fetch('/ui/api/graph/{telegram_id}')
                 .then(res => res.json())
                 .then(data => {{
-                    // Initialize the interactive graph
                     const Graph = ForceGraph()
                     (document.getElementById('graph-container'))
                         .graphData(data)
@@ -75,7 +62,6 @@ async def view_dashboard(telegram_id: int):
                             node.fy = node.y;
                         }});
                         
-                    // Add text to the nodes
                     Graph.nodeCanvasObject((node, ctx, globalScale) => {{
                         const label = node.id;
                         const fontSize = 12/globalScale;
