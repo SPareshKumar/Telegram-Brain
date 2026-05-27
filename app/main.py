@@ -1,5 +1,6 @@
 from fastapi import FastAPI
 from app.api.webhook import router as telegram_router
+from app.api.dashboard import router as dashboard_router  # 👈 Import the new UI module
 
 # Initialize the central application microservice
 app = FastAPI(
@@ -10,6 +11,7 @@ app = FastAPI(
 
 # Register our sub-module routers
 app.include_router(telegram_router)
+app.include_router(dashboard_router)  # 👈 Register the dashboard routes
 
 @app.get("/health")
 def health_check():
