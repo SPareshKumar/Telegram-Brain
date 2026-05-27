@@ -3,9 +3,10 @@ import requests
 from fastapi import APIRouter, Request, Response, status
 import logging
 
-from app.services.gemini_service import classify_text_intent, generate_embedding, generate_rag_response, extract_media_content, extract_entities_and_relationships
+from app.services.gemini_service import analyze_and_extract, generate_embedding, generate_rag_response, extract_media_content
 from app.services.telegram_service import download_telegram_file
 from app.db.supabase_client import get_db
+from app.services.graph_service import build_and_traverse_graph
 
 router = APIRouter(prefix="/telegram", tags=["Telegram Webhook"])
 logger = logging.getLogger("app.webhook")
@@ -74,9 +75,15 @@ async def telegram_webhook_entry(request: Request):
 
         print(f"User {telegram_id} says: '{user_text[:50]}...'")
         
-        # 4. AI Intent Routing
-        intent = classify_text_intent(user_text)
-        print(f"🧠 AI Decision -> Action: {intent.action} | Sensitive: {intent.is_sensitive}")
+        # 4. Single-Pass AI Analysis (Intent + Graph combined!)
+        print("🧠 Analyzing intent and extracting graph entities...")
+        analysis = analyze_and_extract(user_text)
+        
+        intent_action = analysis.get("intent", "store_data")
+        is_sensitive = analysis.get("is_sensitive", False)
+        summary = analysis.get("summary", "User note")
+        
+        print(f"🧠 AI Decision -> Action: {intent_action} | Sensitive: {is_sensitive}")
         
         db = get_db()
         
@@ -87,15 +94,15 @@ async def telegram_webhook_entry(request: Request):
             db.table("users").insert({"telegram_id": telegram_id, "username": username}).execute()
         
         # 5. Database Execution Pipeline
-        if intent.action == "store_data":
-            if intent.is_sensitive:
+        if intent_action == "store_data":
+            if is_sensitive:
                 print("🔒 Sensitive data detected. Routing to secure vault...")
             else:
                 print("💾 Storing standard memory in notes table...")
                 note_response = db.table("notes").insert({
                     "telegram_id": telegram_id,
                     "content": user_text,
-                    "cleaned_content": intent.summary
+                    "cleaned_content": summary
                 }).execute()
                 
                 new_note_id = note_response.data[0]['id']
@@ -110,41 +117,38 @@ async def telegram_webhook_entry(request: Request):
                         "telegram_id": telegram_id,
                         "embedding": vector_array
                     }).execute()
-                    print("✅ Vector successfully indexed in Supabase!")
-
-                # --- NEW GRAPH INGESTION BLOCK ---
-                print("🕸️ Extracting Knowledge Graph entities...")
-                graph_data = extract_entities_and_relationships(user_text)
-
-                # Insert Nodes
-                if graph_data.get("nodes"):
-                    for node in graph_data["nodes"]:
+                    
+                # --- GRAPH INGESTION (Now using our consolidated data!) ---
+                nodes_data = analysis.get("nodes", [])
+                edges_data = analysis.get("edges", [])
+                
+                if nodes_data:
+                    for node in nodes_data:
                         db.table("nodes").insert({
                             "telegram_id": telegram_id,
                             "note_id": new_note_id,
                             "entity_name": node.get("name", "").lower(),
                             "entity_type": node.get("type", "").lower()
                         }).execute()
-
-                # Insert Edges
-                if graph_data.get("edges"):
-                    for edge in graph_data["edges"]:
+                
+                if edges_data:
+                    for edge in edges_data:
                         db.table("edges").insert({
                             "telegram_id": telegram_id,
                             "source_entity_name": edge.get("source", "").lower(),
                             "target_entity_name": edge.get("target", "").lower(),
                             "relationship": edge.get("relationship", "").lower()
                         }).execute()
-                print(f"🕸️ Graph indexed: {len(graph_data.get('nodes', []))} nodes, {len(graph_data.get('edges', []))} edges.")
-                # -------------------------------
-                    
-        elif intent.action == "query_data":
-            print("🔍 Query detected. Initiating vector search...")
+                        
+                print(f"✅ Pipeline Complete: Vector + {len(nodes_data)} Nodes + {len(edges_data)} Edges stored.")
+                
+        elif intent_action == "query_data":
+            print("🔍 Query detected. Initiating HYBRID search...")
+
+            # --- 1. VECTOR SEARCH (Semantic) ---
             query_vector = generate_embedding(user_text)
-            
-            # Geometric distance search
             rpc_response = db.rpc(
-                'match_notes', 
+                'match_notes',
                 {
                     'query_embedding': query_vector,
                     'match_threshold': 0.5,
@@ -152,12 +156,15 @@ async def telegram_webhook_entry(request: Request):
                     'p_telegram_id': telegram_id
                 }
             ).execute()
-            
             retrieved_notes = [match['content'] for match in rpc_response.data]
-            print(f"📚 Found {len(retrieved_notes)} relevant memories.")
-            
-            # RAG Synthesis
-            final_answer = generate_rag_response(user_text, retrieved_notes)
+            print(f"📚 Vector Search: Found {len(retrieved_notes)} relevant memories.")
+
+            # --- 2. GRAPH SEARCH (Relational) ---
+            graph_context = build_and_traverse_graph(telegram_id, user_text)
+            print(f"🕸️ Graph Search: Found {len(graph_context)} relationship edges.")
+
+            # --- 3. HYBRID RAG SYNTHESIS ---
+            final_answer = generate_rag_response(user_text, retrieved_notes, graph_context)
             print(f"🤖 AI Answer: {final_answer}")
             
             # Send the AI response back to Telegram

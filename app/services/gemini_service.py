@@ -23,46 +23,47 @@ class IntentResponse(BaseModel):
     is_sensitive: bool = Field(description="True ONLY if the text contains passwords, pins, API keys, or financial data")
     summary: str = Field(description="A clean, 5-word summary of the payload")
 
-@observe(name="intent_classification")
-def classify_text_intent(user_text: str) -> IntentResponse:
+@observe(name="master_analysis")
+def analyze_and_extract(text: str) -> dict:
     """
-    Analyzes the user's raw text to determine their intent and flags sensitive data.
-    The @observe decorator automatically sends trace telemetry to your Langfuse dashboard.
+    Consolidates Intent Classification and Graph Extraction into a single, 
+    highly efficient API call to bypass rate limits.
     """
+    prompt = f"""
+    Analyze the following text and perform TWO tasks:
+    1. Determine if the user is asking a question (query_data) or sharing information to be saved (store_data).
+    2. Extract a Knowledge Graph (nodes and edges) from the text.
     
-    system_prompt = f"""
-    You are the classification routing engine for a Digital Second Brain.
-    Analyze the user's input.
-    - If they are providing information to remember, output 'store_data'.
-    - If they are asking a question to retrieve information, output 'query_data'.
-    
-    User Input: "{user_text}"
+    Return ONLY a valid JSON object matching this exact schema:
+    {{
+        "intent": "store_data" or "query_data",
+        "is_sensitive": false,
+        "summary": "Brief 5-word summary",
+        "nodes": [
+            {{"name": "Concept 1", "type": "Technology/Person/Team"}}
+        ],
+        "edges": [
+            {{"source": "Concept 1", "target": "Concept 2", "relationship": "plays for / uses / etc"}}
+        ]
+    }}
+
+    TEXT TO ANALYZE:
+    {text}
     """
     
     try:
-        # Call Gemini 1.5 Flash for high-speed routing
         response = client.models.generate_content(
             model='gemini-3.5-flash',
-            contents=system_prompt,
+            contents=prompt,
             config=types.GenerateContentConfig(
-                response_mime_type="application/json",
-                response_schema=IntentResponse,
-                temperature=0.1, # Keep temperature low for deterministic routing
-            ),
+                response_mime_type="application/json"
+            )
         )
-        
-        # Parse the JSON string returned by Gemini into our Pydantic model
-        result = IntentResponse.model_validate_json(response.text)
-        return result
-        
+        return json.loads(response.text)
     except Exception as e:
-        # Fallback safeguard in case of API failure
-        print(f"Gemini Routing Error: {e}")
-        return IntentResponse(
-            action="store_data", 
-            is_sensitive=False, 
-            summary="Unclassified payload"
-        )
+        print(f"❌ Master Analysis Error: {e}")
+        # Safe fallback
+        return {"intent": "store_data", "is_sensitive": False, "summary": "Saved note", "nodes": [], "edges": []}
     
 
 @observe(name="generate_vector")
@@ -85,27 +86,32 @@ def generate_embedding(text: str) -> list[float]:
         print(f"❌ Vector Generation Error: {e}")
         return []
     
-@observe(name="rag_synthesis")
-def generate_rag_response(question: str, context_notes: list[str]) -> str:
+@observe(name="hybrid_rag_synthesis")
+def generate_rag_response(question: str, context_notes: list[str], graph_context: list[str]) -> str:
     """
-    Takes the retrieved database notes and synthesizes a natural language answer.
+    Synthesizes a final answer using BOTH semantic vector notes and structural graph relationships.
     """
-    # Combine the retrieved notes into a single context block
-    context_text = "\n- ".join(context_notes)
-    
+    notes_text = "\n- ".join(context_notes) if context_notes else "No specific notes found."
+    graph_text = "\n- ".join(graph_context) if graph_context else "No graph relationships found."
+
     system_prompt = f"""
     You are the voice of the user's Digital Second Brain.
-    Answer the user's question using ONLY the provided context notes.
-    If the answer is not contained in the notes, say "I don't have that in my memory."
-    Keep your answer concise, conversational, and direct.
-    
-    CONTEXT NOTES:
-    - {context_text}
-    
+    Answer the user's question using the provided context.
+
+    You have two types of memory to pull from:
+    1. RAW MEMORIES (Semantic Search):
+    - {notes_text}
+
+    2. KNOWLEDGE GRAPH (Relational Connections):
+    - {graph_text}
+
+    Synthesize this information into a concise, conversational, and direct answer.
+    If the answer isn't in either memory bank, say you don't know.
+
     USER QUESTION:
     {question}
     """
-    
+
     try:
         response = client.models.generate_content(
             model='gemini-3.5-flash',
