@@ -1,5 +1,6 @@
 import os
 import json
+import time
 from pydantic import BaseModel, Field
 from google import genai
 from google.genai import types
@@ -51,19 +52,32 @@ def analyze_and_extract(text: str) -> dict:
     {text}
     """
     
-    try:
-        response = client.models.generate_content(
-            model='gemini-3.5-flash',
-            contents=prompt,
-            config=types.GenerateContentConfig(
-                response_mime_type="application/json"
+    # Try up to 3 times before failing
+    for attempt in range(3):
+        try:
+            response = client.models.generate_content(
+                model='gemini-3.5-flash',
+                contents=prompt,
+                config=types.GenerateContentConfig(
+                    response_mime_type="application/json"
+                )
             )
-        )
-        return json.loads(response.text)
-    except Exception as e:
-        print(f"❌ Master Analysis Error: {e}")
-        # Safe fallback
-        return {"intent": "store_data", "is_sensitive": False, "summary": "Saved note", "nodes": [], "edges": []}
+            return json.loads(response.text)
+
+        except Exception as e:
+            error_msg = str(e)
+            print(f"⚠️ Attempt {attempt + 1} Failed: {error_msg}")
+
+            # If it's a server overload (503) or rate limit (429), wait and retry
+            if "503" in error_msg or "429" in error_msg:
+                time.sleep(2 ** attempt)  # Waits 1s, then 2s, then 4s
+                continue
+
+            # If it's a different kind of error (like a strict coding bug), stop trying
+            break
+
+    print("❌ Master Analysis completely failed after 3 retries.")
+    return {"intent": "error", "is_sensitive": False, "summary": "Error", "nodes": [], "edges": []}
     
 
 @observe(name="generate_vector")

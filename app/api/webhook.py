@@ -95,7 +95,15 @@ async def telegram_webhook_entry(request: Request):
             db.table("users").insert({"telegram_id": telegram_id, "username": username}).execute()
         
         # 5. Database Execution Pipeline
-        if intent_action == "store_data":
+        if intent_action == "error":
+            print("🛑 System overloaded. Alerting user...")
+            bot_token = os.getenv("TELEGRAM_BOT_TOKEN")
+            requests.post(f"https://api.telegram.org/bot{bot_token}/sendMessage", json={
+                "chat_id": telegram_id,
+                "text": "My neural pathways are a bit congested right now (Google API 503). Give me a few seconds and try again!"
+            })
+            return Response(status_code=status.HTTP_200_OK)
+        elif intent_action == "store_data":
             if is_sensitive:
                 print("🔒 Sensitive data detected. Encrypting and routing to Secure Vault...")
                 # 1. Generate the Safe Label (We'll use the AI's summary)
