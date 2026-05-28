@@ -7,6 +7,7 @@ from app.services.gemini_service import analyze_and_extract, generate_embedding,
 from app.services.telegram_service import download_telegram_file
 from app.db.supabase_client import get_db
 from app.services.graph_service import build_and_traverse_graph
+from app.services.crypto_service import encrypt_text, decrypt_text
 
 router = APIRouter(prefix="/telegram", tags=["Telegram Webhook"])
 logger = logging.getLogger("app.webhook")
@@ -96,7 +97,65 @@ async def telegram_webhook_entry(request: Request):
         # 5. Database Execution Pipeline
         if intent_action == "store_data":
             if is_sensitive:
-                print("🔒 Sensitive data detected. Routing to secure vault...")
+                print("🔒 Sensitive data detected. Encrypting and routing to Secure Vault...")
+                # 1. Generate the Safe Label (We'll use the AI's summary)
+                safe_label = summary
+
+                # 2. Encrypt the raw, sensitive text
+                encrypted_data = encrypt_text(user_text)
+
+                # 3. Store the ciphertext in the secure_vault table
+                db.table("secure_vault").insert({
+                    "telegram_id": telegram_id,
+                    "secret_type": "document",
+                    "encrypted_value": encrypted_data,
+                    "associated_label": safe_label
+                }).execute()
+
+                # 4. Create a "Pointer Note" for the Vector DB and Graph
+                pointer_text = f"[SECURE_VAULT_REF] {safe_label}"
+                note_response = db.table("notes").insert({
+                    "telegram_id": telegram_id,
+                    "content": pointer_text, # The AI will see this pointer later
+                    "cleaned_content": safe_label
+                }).execute()
+
+                new_note_id = note_response.data[0]['id']
+
+                # 5. Embed the Safe Label (NOT the raw text)
+                print("🧮 Generating vector embedding for Safe Label...")
+                vector_array = generate_embedding(safe_label)
+
+                # --- GRAPH INGESTION (Now using our consolidated data!) ---
+                nodes_data = analysis.get("nodes", [])
+                edges_data = analysis.get("edges", [])
+
+                if vector_array:
+                    db.table("note_embeddings").insert({
+                        "id": new_note_id,
+                        "telegram_id": telegram_id,
+                        "embedding": vector_array
+                    }).execute()
+
+                if nodes_data:
+                    for node in nodes_data:
+                        db.table("nodes").insert({
+                            "telegram_id": telegram_id,
+                            "note_id": new_note_id,
+                            "entity_name": node.get("name", "").lower(),
+                            "entity_type": node.get("type", "").lower()
+                        }).execute()
+
+                if edges_data:
+                    for edge in edges_data:
+                        db.table("edges").insert({
+                            "telegram_id": telegram_id,
+                            "source_entity_name": edge.get("source", "").lower(),
+                            "target_entity_name": edge.get("target", "").lower(),
+                            "relationship": edge.get("relationship", "").lower()
+                        }).execute()
+
+                print(f"✅ Pipeline Complete: Vector + {len(nodes_data)} Nodes + {len(edges_data)} Edges stored.")
             else:
                 print("💾 Storing standard memory in notes table...")
                 note_response = db.table("notes").insert({
@@ -144,11 +203,11 @@ async def telegram_webhook_entry(request: Request):
                 
         elif intent_action == "query_data":
             print("🔍 Query detected. Initiating HYBRID search...")
-
+            
             # --- 1. VECTOR SEARCH (Semantic) ---
             query_vector = generate_embedding(user_text)
             rpc_response = db.rpc(
-                'match_notes',
+                'match_notes', 
                 {
                     'query_embedding': query_vector,
                     'match_threshold': 0.5,
@@ -156,7 +215,25 @@ async def telegram_webhook_entry(request: Request):
                     'p_telegram_id': telegram_id
                 }
             ).execute()
-            retrieved_notes = [match['content'] for match in rpc_response.data]
+            
+            # --- THE DECRYPTION INTERCEPTOR ---
+            retrieved_notes = []
+            for match in rpc_response.data:
+                note_text = match['content']
+                if note_text.startswith("[SECURE_VAULT_REF]"):
+                    # It's a pointer! Let's fetch and decrypt the real data in memory.
+                    label = note_text.replace("[SECURE_VAULT_REF] ", "")
+                    print(f"🔓 Secure pointer found for '{label}'. Decrypting in RAM...")
+                    
+                    vault_res = db.table("secure_vault").select("encrypted_value").eq("associated_label", label).eq("telegram_id", telegram_id).execute()
+                    
+                    if vault_res.data:
+                        decrypted_text = decrypt_text(vault_res.data[0]['encrypted_value'])
+                        retrieved_notes.append(f"SECURE DOCUMENT ({label}):\n{decrypted_text}")
+                else:
+                    # Standard public note
+                    retrieved_notes.append(note_text)
+            
             print(f"📚 Vector Search: Found {len(retrieved_notes)} relevant memories.")
 
             # --- 2. GRAPH SEARCH (Relational) ---
