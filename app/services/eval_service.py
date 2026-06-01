@@ -1,9 +1,10 @@
 import json
-from langfuse import Langfuse
+# 🚨 THE V3 FIX: Use get_client again
+from langfuse import get_client
 from app.services.gemini_service import client, types 
 
-# In V3, we must explicitly instantiate the core client to push external scores
-langfuse_api = Langfuse()
+# Initialize the client
+langfuse = get_client()
 
 def run_rag_evaluation(trace_id: str, query: str, context: str, response: str):
     print(f"⚖️ Running background evaluation for trace: {trace_id}")
@@ -38,21 +39,23 @@ def run_rag_evaluation(trace_id: str, query: str, context: str, response: str):
         
         scores = json.loads(eval_response.text)
         
-        # 🚨 THE V3 SCORING FIX 🚨
+        # 🚨 THE SMOKING GUN: It is create_score(), not score()! 🚨
         if trace_id:
-            langfuse_api.score(
+            langfuse.create_score(
                 trace_id=trace_id,
                 name="Context-Relevance",
                 value=float(scores.get("context_relevance", 0)),
                 comment=scores.get("reasoning", "")
             )
-            langfuse_api.score(
+            langfuse.create_score(
                 trace_id=trace_id,
                 name="Groundedness",
                 value=float(scores.get("groundedness", 0)),
                 comment=scores.get("reasoning", "")
             )
-            langfuse_api.flush()
+            
+            # V3 uses flush() to force the background thread to send the API request immediately
+            langfuse.flush()
             
         print(f"📊 Eval Complete: Relevance [{scores.get('context_relevance')}] | Groundedness [{scores.get('groundedness')}]")
         
