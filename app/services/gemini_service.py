@@ -24,11 +24,11 @@ class IntentResponse(BaseModel):
     is_sensitive: bool = Field(description="True ONLY if the text contains passwords, pins, API keys, or financial data")
     summary: str = Field(description="A clean, 5-word summary of the payload")
 
-# Define our cascade hierarchy
+# Define our cascade hierarchy using currently active models
 FALLBACK_MODELS = [
     'gemini-3.5-flash',
-    'gemini-1.5-flash',
-    'gemini-1.5-flash-8b'
+    'gemini-2.5-flash',
+    'gemini-2.5-flash-lite'
 ]
 
 @observe(name="master_analysis")
