@@ -1,10 +1,10 @@
 import json
-from langfuse import Langfuse
+from langfuse import get_client
 # (Assuming you initialized your Gemini client in gemini_service, or you can re-import it here)
 from app.services.gemini_service import client, types 
 
-# Initialize the raw Langfuse client to push scores asynchronously
-langfuse_client = Langfuse()
+# Initialize the v3 client for scoring
+langfuse = get_client()
 
 def run_rag_evaluation(trace_id: str, query: str, context: str, response: str):
     """
@@ -46,13 +46,13 @@ def run_rag_evaluation(trace_id: str, query: str, context: str, response: str):
         
         # Push the calculated scores directly to your Langfuse dashboard!
         if trace_id:
-            langfuse_client.score(
+            langfuse.score(
                 trace_id=trace_id,
                 name="Context-Relevance",
                 value=scores.get("context_relevance", 0),
                 comment=scores.get("reasoning", "")
             )
-            langfuse_client.score(
+            langfuse.score(
                 trace_id=trace_id,
                 name="Groundedness",
                 value=scores.get("groundedness", 0),
