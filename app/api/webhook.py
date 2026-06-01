@@ -248,18 +248,38 @@ async def telegram_webhook_entry(request: Request):
             graph_context = build_and_traverse_graph(telegram_id, user_text)
             print(f"🕸️ Graph Search: Found {len(graph_context)} relationship edges.")
 
-            # --- 3. HYBRID RAG SYNTHESIS ---
-            final_answer = generate_rag_response(user_text, retrieved_notes, graph_context)
-            print(f"🤖 AI Answer: {final_answer}")
+            # --- 3. FETCH SHORT-TERM MEMORY ---
+            history_res = db.table("chat_history").select("role, content").eq("telegram_id", telegram_id).order("created_at", desc=True).limit(5).execute()
             
-            # Send the AI response back to Telegram
+            # Reverse the list so it reads chronologically (oldest to newest)
+            recent_messages = history_res.data[::-1] 
+            chat_context = "\n".join([f"{msg['role'].capitalize()}: {msg['content']}" for msg in recent_messages])
+            
+            print("💬 Injected recent conversational memory.")
+
+            # --- 4. RAG SYNTHESIS ---
+            # map graph_context to graph_relationships for the new API
+            graph_relationships = graph_context
+            final_answer = generate_rag_response(
+                question=user_text, 
+                context_notes=retrieved_notes, 
+                graph_context=graph_relationships,
+                chat_context=chat_context # Pass the new context here
+            )
+            
+            # --- 5. SAVE NEW INTERACTION TO SHORT-TERM MEMORY ---
+            db.table("chat_history").insert([
+                {"telegram_id": telegram_id, "role": "user", "content": user_text},
+                {"telegram_id": telegram_id, "role": "assistant", "content": final_answer}
+            ]).execute()
+
+            # --- 6. SEND TO TELEGRAM ---
             bot_token = os.getenv("TELEGRAM_BOT_TOKEN")
-            telegram_url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
-            requests.post(telegram_url, json={
+            requests.post(f"https://api.telegram.org/bot{bot_token}/sendMessage", json={
                 "chat_id": telegram_id,
                 "text": final_answer
             })
-            print("✅ Reply successfully sent to Telegram!")
+            return Response(status_code=status.HTTP_200_OK)
             
         return Response(status_code=status.HTTP_200_OK)
         

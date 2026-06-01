@@ -111,27 +111,32 @@ def generate_embedding(text: str) -> list[float]:
         return []
     
 @observe(name="hybrid_rag_synthesis")
-def generate_rag_response(question: str, context_notes: list[str], graph_context: list[str]) -> str:
+def generate_rag_response(question: str, context_notes: list[str], graph_context: list[str], chat_context: str = "") -> str:
     """
-    Synthesizes a final answer using BOTH semantic vector notes and structural graph relationships,
-    with model fallback cascade protection.
+    Synthesizes a final answer using semantic vectors, graph relationships, and short-term chat history.
     """
     notes_text = "\n- ".join(context_notes) if context_notes else "No specific notes found."
     graph_text = "\n- ".join(graph_context) if graph_context else "No graph relationships found."
+    history_text = chat_context if chat_context else "No recent conversation history."
     system_prompt = f"""
     You are the voice of the user's Digital Second Brain.
-    Answer the user's question using the provided context.
-
-    You have two types of memory to pull from:
-    1. RAW MEMORIES (Semantic Search):
+    Answer the user's question using the provided context. 
+    
+    You have three types of memory to pull from:
+    
+    1. SHORT-TERM CONVERSATION (Recent Chat Context):
+    {history_text}
+    
+    2. RAW MEMORIES (Semantic Search):
     - {notes_text}
-
-    2. KNOWLEDGE GRAPH (Relational Connections):
+    
+    3. KNOWLEDGE GRAPH (Relational Connections):
     - {graph_text}
-
-    Synthesize this information into a concise, conversational, and direct answer.
-    If the answer isn't in either memory bank, say you don't know.
-
+    
+    Synthesize this information into a concise, conversational, and direct answer. 
+    Use the short-term conversation to understand pronouns or context (e.g., if the user says "how old is he?", figure out who "he" is from the recent chat).
+    If the answer isn't in any of the memory banks, say you don't know.
+    
     USER QUESTION:
     {question}
     """
