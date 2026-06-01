@@ -1,15 +1,11 @@
 import json
-from langfuse import Langfuse
+from langfuse.client import Langfuse
 from app.services.gemini_service import client, types 
 
-# Initialize the core API client for scoring
-langfuse = Langfuse()
+# In V3, we must explicitly instantiate the core client to push external scores
+langfuse_api = Langfuse()
 
 def run_rag_evaluation(trace_id: str, query: str, context: str, response: str):
-    """
-    Background worker that acts as an LLM-as-a-Judge to score the RAG Triad.
-    It pushes the metrics directly to Langfuse.
-    """
     print(f"⚖️ Running background evaluation for trace: {trace_id}")
     
     prompt = f"""
@@ -42,23 +38,21 @@ def run_rag_evaluation(trace_id: str, query: str, context: str, response: str):
         
         scores = json.loads(eval_response.text)
         
-        # Now using the core API client, this will successfully push the scores!
+        # 🚨 THE V3 SCORING FIX 🚨
         if trace_id:
-            langfuse.score(
+            langfuse_api.score(
                 trace_id=trace_id,
                 name="Context-Relevance",
-                value=scores.get("context_relevance", 0),
+                value=float(scores.get("context_relevance", 0)),
                 comment=scores.get("reasoning", "")
             )
-            langfuse.score(
+            langfuse_api.score(
                 trace_id=trace_id,
                 name="Groundedness",
-                value=scores.get("groundedness", 0),
+                value=float(scores.get("groundedness", 0)),
                 comment=scores.get("reasoning", "")
             )
-
-            # Flush the client to ensure the background thread sends the data immediately
-            langfuse.flush()
+            langfuse_api.flush()
             
         print(f"📊 Eval Complete: Relevance [{scores.get('context_relevance')}] | Groundedness [{scores.get('groundedness')}]")
         
