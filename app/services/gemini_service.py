@@ -4,7 +4,7 @@ import time
 from pydantic import BaseModel, Field
 from google import genai
 from google.genai import types
-from langfuse import observe
+
 from dotenv import load_dotenv
 
 # Load environment variables
@@ -31,7 +31,6 @@ FALLBACK_MODELS = [
     'gemini-2.5-flash-lite'
 ]
 
-@observe(name="master_analysis")
 def analyze_and_extract(text: str, chat_context: str = "") -> dict:
     """
     Consolidates Intent Classification, Graph Extraction, and Contextual Query Rewriting 
@@ -89,7 +88,6 @@ def analyze_and_extract(text: str, chat_context: str = "") -> dict:
     return {"standalone_query": text, "intent": "error", "is_sensitive": False, "summary": "System Error", "nodes": [], "edges": []}
     
 
-@observe(name="generate_vector")
 def generate_embedding(text: str) -> list[float]:
     """
     Converts cleartext into a 768-dimensional mathematical vector.
@@ -109,7 +107,6 @@ def generate_embedding(text: str) -> list[float]:
         print(f"❌ Vector Generation Error: {e}")
         return []
     
-@observe(name="hybrid_rag_synthesis")
 def generate_rag_response(question: str, context_notes: list[str], graph_context: list[str], chat_context: str = "") -> str:
     """
     Synthesizes a final answer using semantic vectors, graph relationships, and short-term chat history.
@@ -162,7 +159,6 @@ def generate_rag_response(question: str, context_notes: list[str], graph_context
     return "My neural pathways are severely congested right now. Please try asking again in a minute!"
     
 
-@observe(name="multimodal_extraction")
 def extract_media_content(local_file_path: str, media_type: str, user_caption: str = "") -> str:
     """
     Uploads media to Gemini, extracts the context/text, and returns a comprehensive summary.
@@ -218,7 +214,6 @@ def extract_media_content(local_file_path: str, media_type: str, user_caption: s
         return f"Failed to extract content from the {media_type}."
     
 
-@observe(name="extract_graph")
 def extract_entities_and_relationships(text: str) -> dict:
     """
     Forces the LLM to extract a Knowledge Graph from the text in strict JSON format.
