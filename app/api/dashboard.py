@@ -37,18 +37,17 @@ async def view_dashboard(telegram_id: int):
     <head>
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>Digital Brain Topology</title>
+        <title>Digital Mind</title>
         <script src="https://unpkg.com/force-graph"></script>
         <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
         <style>
             :root {{
                 --bg-color: #080b10;
-                --panel-bg: rgba(13, 20, 30, 0.45);
-                --border-color: rgba(255, 255, 255, 0.06);
+                --panel-bg: rgba(13, 20, 30, 0.6);
+                --border-color: rgba(255, 255, 255, 0.1);
                 --text-primary: #f0f4f8;
                 --text-secondary: #8a99ad;
                 --accent-blue: #38bdf8;
-                --accent-secure: #f43f5e;
             }}
             
             body {{
@@ -58,10 +57,6 @@ async def view_dashboard(telegram_id: int):
                 color: var(--text-primary);
                 font-family: 'Inter', sans-serif;
                 overflow: hidden;
-                background-image: 
-                    linear-gradient(rgba(255,255,255,0.01) 1px, transparent 1px),
-                    linear-gradient(90deg, rgba(255,255,255,0.01) 1px, transparent 1px);
-                background-size: 40px 40px;
             }}
             
             #graph-container {{
@@ -73,41 +68,32 @@ async def view_dashboard(telegram_id: int):
                 z-index: 1;
             }}
             
-            /* Modern Glassmorphic Side Panel */
             #glass-panel {{
                 position: absolute;
                 top: 24px;
                 left: 24px;
-                width: 320px;
+                width: 280px;
                 background: var(--panel-bg);
-                backdrop-filter: blur(16px);
-                -webkit-backdrop-filter: blur(16px);
+                backdrop-filter: blur(12px);
+                -webkit-backdrop-filter: blur(12px);
                 border: 1px solid var(--border-color);
-                border-radius: 16px;
+                border-radius: 12px;
                 padding: 24px;
                 z-index: 10;
-                box-shadow: 0 20px 40px rgba(0,0,0,0.5);
-                pointer-events: auto;
+                box-shadow: 0 10px 30px rgba(0,0,0,0.5);
             }}
             
             h1 {{
-                margin: 0 0 6px 0;
-                font-size: 20px;
+                margin: 0 0 8px 0;
+                font-size: 22px;
                 font-weight: 600;
-                letter-spacing: -0.5px;
-                background: linear-gradient(135deg, #fff 0%, var(--text-secondary) 100%);
-                -webkit-background-clip: text;
-                -webkit-text-fill-color: transparent;
+                color: #ffffff;
             }}
             
             .meta-tag {{
                 font-family: 'JetBrains Mono', monospace;
                 font-size: 11px;
-                color: var(--accent-blue);
-                background: rgba(56, 189, 248, 0.1);
-                padding: 2px 8px;
-                border-radius: 4px;
-                display: inline-block;
+                color: var(--text-secondary);
                 margin-bottom: 20px;
             }}
             
@@ -130,37 +116,21 @@ async def view_dashboard(telegram_id: int):
                 font-family: 'JetBrains Mono', monospace;
                 font-weight: 600;
             }}
-            
-            /* Custom minimalist tooltip */
-            .graph-tooltip {{
-                background: rgba(10, 15, 26, 0.9) !important;
-                border: 1px solid var(--border-color) !important;
-                backdrop-filter: blur(8px);
-                border-radius: 8px !important;
-                padding: 8px 12px !important;
-                font-size: 12px !important;
-                color: var(--text-primary) !important;
-                box-shadow: 0 10px 25px rgba(0,0,0,0.5);
-            }}
         </style>
     </head>
     <body>
         <div id="glass-panel">
-            <h1>CORTICAL REPOSITORY</h1>
-            <div class="meta-tag">BRAIN_ID // {telegram_id}</div>
+            <h1>Digital Mind</h1>
+            <div class="meta-tag">ID: {telegram_id}</div>
             
             <div class="stats-container">
                 <div class="stat-row">
-                    <span>Status</span>
-                    <span class="stat-value" style="color: #10b981;">● ONLINE</span>
+                    <span>System Status</span>
+                    <span class="stat-value" style="color: #10b981;">● Active</span>
                 </div>
                 <div class="stat-row">
-                    <span>Topology Geometry</span>
-                    <span class="stat-value">Bi-Hemispheric</span>
-                </div>
-                <div class="stat-row">
-                    <span>Sync Metrics</span>
-                    <span class="stat-value" id="node-count">Calculating...</span>
+                    <span>Knowledge Nodes</span>
+                    <span class="stat-value" id="node-count">...</span>
                 </div>
             </div>
         </div>
@@ -169,47 +139,57 @@ async def view_dashboard(telegram_id: int):
 
         <script>
             fetch('/ui/api/graph/{telegram_id}')
-                .then(res => {{
-                    if(!res.ok) throw new Error("Network response was not ok");
-                    return res.json();
-                }})
+                .then(res => res.json())
                 .then(data => {{
-                    document.getElementById('node-count').innerText = `${{data.nodes.length}} Nodes`;
+                    document.getElementById('node-count').innerText = data.nodes.length;
                     
                     const container = document.getElementById('graph-container');
                     const Graph = ForceGraph()(container)
                         .graphData(data)
                         .nodeId('id')
-                        .linkWidth(1)
-                        .linkColor(() => 'rgba(255, 255, 255, 0.07)')
-                        .linkDirectionalArrowLength(0) // Minimalist link approach
+                        .linkWidth(1.5)
+                        .linkColor(() => 'rgba(255, 255, 255, 0.15)')
                         .backgroundColor('#080b10')
-                        .cooldownTicks(120);
+                        .cooldownTicks(Infinity) // Prevents the engine from freezing, fixing the drag bug
+                        .onNodeDragEnd(node => {{
+                            // Pin node where dropped
+                            node.fx = node.x;
+                            node.fy = node.y;
+                        }})
+                        .onNodeClick(node => {{
+                            // Unpin node on click so it floats back into the cluster
+                            node.fx = undefined;
+                            node.fy = undefined;
+                        }});
 
-                    // --- BRAIN GEOMETRY FORCES ---
-                    // Custom force system that pulls nodes into an anatomical brain silhouette
-                    Graph.d3Force('charge').strength(-45);
-                    Graph.d3Force('link').distance(40);
+                    // 1. Base physics: nodes repel strongly so they don't clump
+                    Graph.d3Force('charge').strength(-250);
+                    Graph.d3Force('link').distance(50).strength(0.2);
                     
-                    // The Cortical Envelope Constellation Multi-Force
-                    Graph.d3Force('brain-shape', (alpha) => {{
-                        data.nodes.forEach(node => {{
-                            // Group 0/even nodes to Left Hemisphere, Group 1/odd to Right Hemisphere
-                            const isLeftHemisphere = node.id.charCodeAt(0) % 2 === 0;
-                            const targetX = isLeftHemisphere ? -90 : 90;
+                    // 2. Custom Brain Geometry Force
+                    Graph.d3Force('brain-lobes', (alpha) => {{
+                        data.nodes.forEach((node, index) => {{
+                            // Designate 1 in every 5 nodes to pull downwards forming a "stem"
+                            const isStem = index % 5 === 0;
+                            // Split the remaining nodes into left and right hemispheres
+                            const isLeft = index % 2 === 0;
                             
-                            // Create a round sagittal curve envelope (Y-axis squeezing)
-                            const targetY = Math.sin(node.x / 60) * 45;
+                            let targetX = isLeft ? -90 : 90;
+                            let targetY = -40;
                             
-                            // Smoothly drag nodes toward the imaginary geometric envelope
-                            node.vx += (targetX - node.x) * 0.02 * alpha;
-                            node.vy += (targetY - node.y) * 0.02 * alpha;
+                            if (isStem) {{
+                                targetX = 0;
+                                targetY = 120;
+                            }}
+
+                            // Apply the pull
+                            node.vx += (targetX - node.x) * 0.05 * alpha;
+                            node.vy += (targetY - node.y) * 0.05 * alpha;
                         }});
                     }});
 
-                    // --- HIGH-END HOVER & RENDERING PIPELINE ---
+                    // 3. Hover & Label Rendering
                     let hoveredNode = null;
-
                     Graph.onNodeHover(node => {{
                         container.style.cursor = node ? 'pointer' : 'default';
                         hoveredNode = node;
@@ -219,47 +199,38 @@ async def view_dashboard(telegram_id: int):
                         const isSecure = node.group === "SECURE_VAULT";
                         const isHovered = hoveredNode === node;
                         
-                        // Pick aesthetic cyberpunk glowing tones
-                        let coreColor = isSecure ? '#f43f5e' : '#38bdf8';
-                        if (node.group === "Technology" || node.group === "Stack") coreColor = '#a855f7';
-                        if (node.group === "Concept") coreColor = '#34d399';
+                        let coreColor = isSecure ? '#ef4444' : '#3b82f6'; // Clean red or blue
+                        if (node.group === "Technology" || node.group === "Stack") coreColor = '#8b5cf6'; // Purple
+                        if (node.group === "Concept") coreColor = '#10b981'; // Green
                         
-                        // Particle Glow Ring Effect
-                        const radius = isHovered ? 7 : 4.5;
-                        ctx.beginPath();
-                        ctx.arc(node.x, node.y, radius + 3, 0, 2 * Math.PI, false);
-                        ctx.fillStyle = isHovered ? 'rgba(56, 189, 248, 0.15)' : 'rgba(255,255,255,0.01)';
-                        ctx.fill();
-
-                        // Core Node Dot
+                        const radius = isHovered ? 6 : 4;
+                        
+                        // Node circle
                         ctx.beginPath();
                         ctx.arc(node.x, node.y, radius, 0, 2 * Math.PI, false);
                         ctx.fillStyle = coreColor;
                         ctx.fill();
                         
-                        // High-fidelity Typographic Label Rendering
+                        // Label rendering
                         const rawLabel = node.id.replace("[SECURE_VAULT_REF] ", "🔒 ");
                         const label = rawLabel.length > 25 ? rawLabel.substring(0, 22) + '...' : rawLabel;
                         
-                        const fontSize = isHovered ? 14 / globalScale : 11 / globalScale;
-                        ctx.font = isHovered ? `600 ${{fontSize}}px 'Inter'` : `400 ${{fontSize}}px 'Inter'`;
-                        
+                        const fontSize = isHovered ? 14 / globalScale : 12 / globalScale;
+                        ctx.font = `${{fontSize}}px 'Inter'`;
                         ctx.textAlign = 'center';
                         ctx.textBaseline = 'top';
                         
-                        // Shadow text backing for extreme readability over overlapping node clusters
-                        ctx.fillStyle = 'rgba(8, 11, 16, 0.85)';
-                        ctx.fillText(label, node.x, node.y + radius + 3);
-                        ctx.fillText(label, node.x - 1, node.y + radius + 3);
-                        ctx.fillText(label, node.x + 1, node.y + radius + 3);
+                        // Background shadow for text readability
+                        ctx.fillStyle = 'rgba(8, 11, 16, 0.9)';
+                        const textWidth = ctx.measureText(label).width;
+                        ctx.fillRect(node.x - textWidth/2 - 2, node.y + radius + 2, textWidth + 4, fontSize + 4);
                         
-                        ctx.fillStyle = isHovered ? '#ffffff' : 'rgba(240, 244, 248, 0.85)';
-                        ctx.fillText(label, node.x, node.y + radius + 3);
+                        // Text itself
+                        ctx.fillStyle = isHovered ? '#ffffff' : '#9ca3af';
+                        ctx.fillText(label, node.x, node.y + radius + 4);
                     }});
                 }})
-                .catch(err => {{
-                    console.error("Dashboard failed to initialize:", err);
-                }});
+                .catch(err => console.error(err));
         </script>
     </body>
     </html>
