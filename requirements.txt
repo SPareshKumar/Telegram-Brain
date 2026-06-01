@@ -12,3 +12,4 @@ pydantic>=2.6.0
 python-dotenv>=1.0.1
 networkx==3.6.1
 cryptography==48.0.0
+langfuse==2.7.0
