@@ -24,11 +24,18 @@ class IntentResponse(BaseModel):
     is_sensitive: bool = Field(description="True ONLY if the text contains passwords, pins, API keys, or financial data")
     summary: str = Field(description="A clean, 5-word summary of the payload")
 
+# Define our cascade hierarchy
+FALLBACK_MODELS = [
+    'gemini-3.5-flash',
+    'gemini-1.5-flash',
+    'gemini-1.5-flash-8b'
+]
+
 @observe(name="master_analysis")
 def analyze_and_extract(text: str) -> dict:
     """
-    Consolidates Intent Classification and Graph Extraction into a single, 
-    highly efficient API call to bypass rate limits.
+    Consolidates Intent Classification and Graph Extraction into a single call,
+    with an intelligent fallback cascade to handle Google server overloads.
     """
     prompt = f"""
     Analyze the following text and perform TWO tasks:
@@ -51,33 +58,36 @@ def analyze_and_extract(text: str) -> dict:
     TEXT TO ANALYZE:
     {text}
     """
-    
-    # Try up to 3 times before failing
-    for attempt in range(3):
+
+    # Iterate through our models from heaviest to lightest
+    for attempt, model_name in enumerate(FALLBACK_MODELS):
         try:
+            print(f"🧠 Routing to {model_name}...")
             response = client.models.generate_content(
-                model='gemini-3.5-flash',
+                model=model_name,
                 contents=prompt,
                 config=types.GenerateContentConfig(
                     response_mime_type="application/json"
                 )
             )
             return json.loads(response.text)
-
+            
         except Exception as e:
             error_msg = str(e)
-            print(f"⚠️ Attempt {attempt + 1} Failed: {error_msg}")
-
-            # If it's a server overload (503) or rate limit (429), wait and retry
+            print(f"⚠️ {model_name} Failed: {error_msg}")
+            
+            # If it's a server overload (503) or rate limit (429), cascade to the next model
             if "503" in error_msg or "429" in error_msg:
-                time.sleep(2 ** attempt)  # Waits 1s, then 2s, then 4s
-                continue
-
-            # If it's a different kind of error (like a strict coding bug), stop trying
+                if attempt < len(FALLBACK_MODELS) - 1:
+                    print("🔄 Cascading to next available model...")
+                    time.sleep(1) # Brief pause before hitting the next tier
+                    continue 
+            
+            # If it's a strict coding bug (like 403 or 400), stop trying
             break
-
-    print("❌ Master Analysis completely failed after 3 retries.")
-    return {"intent": "error", "is_sensitive": False, "summary": "Error", "nodes": [], "edges": []}
+            
+    print("❌ Master Analysis completely failed across all models.")
+    return {"intent": "error", "is_sensitive": False, "summary": "System Error", "nodes": [], "edges": []}
     
 
 @observe(name="generate_vector")
@@ -103,11 +113,11 @@ def generate_embedding(text: str) -> list[float]:
 @observe(name="hybrid_rag_synthesis")
 def generate_rag_response(question: str, context_notes: list[str], graph_context: list[str]) -> str:
     """
-    Synthesizes a final answer using BOTH semantic vector notes and structural graph relationships.
+    Synthesizes a final answer using BOTH semantic vector notes and structural graph relationships,
+    with model fallback cascade protection.
     """
     notes_text = "\n- ".join(context_notes) if context_notes else "No specific notes found."
     graph_text = "\n- ".join(graph_context) if graph_context else "No graph relationships found."
-
     system_prompt = f"""
     You are the voice of the user's Digital Second Brain.
     Answer the user's question using the provided context.
@@ -126,15 +136,26 @@ def generate_rag_response(question: str, context_notes: list[str], graph_context
     {question}
     """
 
-    try:
-        response = client.models.generate_content(
-            model='gemini-3.5-flash',
-            contents=system_prompt,
-        )
-        return response.text
-    except Exception as e:
-        print(f"❌ RAG Generation Error: {e}")
-        return "I'm having trouble thinking right now. Please try again."
+    # Iterate through our models
+    for attempt, model_name in enumerate(FALLBACK_MODELS):
+        try:
+            print(f"🗣️ Synthesizing response using {model_name}...")
+            response = client.models.generate_content(
+                model=model_name,
+                contents=system_prompt,
+            )
+            return response.text
+        except Exception as e:
+            error_msg = str(e)
+            print(f"⚠️ RAG Synthesis {model_name} Failed: {error_msg}")
+
+            if "503" in error_msg or "429" in error_msg:
+                if attempt < len(FALLBACK_MODELS) - 1:
+                    time.sleep(1)
+                    continue
+            break
+
+    return "My neural pathways are severely congested right now. Please try asking again in a minute!"
     
 
 @observe(name="multimodal_extraction")
