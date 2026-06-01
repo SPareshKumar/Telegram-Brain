@@ -1,5 +1,5 @@
 import json
-from langfuse.client import Langfuse
+from langfuse import Langfuse
 from app.services.gemini_service import client, types 
 
 # In V3, we must explicitly instantiate the core client to push external scores
