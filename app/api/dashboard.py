@@ -11,8 +11,21 @@ async def get_user_graph(telegram_id: int):
     nodes_res = db.table("nodes").select("*").eq("telegram_id", telegram_id).execute()
     edges_res = db.table("edges").select("*").eq("telegram_id", telegram_id).execute()
     
+    # Map nodes out, tagging secure pointers with a specific group name
+    formatted_nodes = []
+    for n in nodes_res.data:
+        node_name = n["entity_name"]
+        node_name_lower = node_name.lower()
+        # If this node belongs to a secure reference pointer, give it a unique group
+        group_type = "SECURE_VAULT" if "[SECURE_VAULT_REF]" in node_name or "id card" in node_name_lower else n["entity_type"]
+
+        formatted_nodes.append({
+            "id": node_name,
+            "group": group_type,
+        })
+
     graph_data = {
-        "nodes": [{"id": n["entity_name"], "group": n["entity_type"]} for n in nodes_res.data],
+        "nodes": formatted_nodes,
         "links": [{"source": e["source_entity_name"], "target": e["target_entity_name"], "label": e["relationship"]} for e in edges_res.data]
     }
     
