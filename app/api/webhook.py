@@ -60,13 +60,15 @@ async def telegram_webhook(request: Request, background_tasks: BackgroundTasks):
             elif intent_action == "query_data":
                 # 🚨 THE FIX: RESTORING THE HYBRID VECTOR SEARCH 🚨
                 query_vector = generate_embedding(standalone_text) 
+                # Defensive formatting: stringify the list to match Postgres's expected vector literal format '[...]'
+                query_vector_str = str(query_vector)
                 
                 rpc_response = db.rpc(
                     'match_notes', 
                     {
-                        'query_embedding': query_vector,
-                        'match_threshold': 0.5,
-                        'match_count': 3,
+                        'query_embedding': query_vector_str,
+                        'match_threshold': 0.2,
+                        'match_count': 5,
                         'p_telegram_id': telegram_id
                     }
                 ).execute()
