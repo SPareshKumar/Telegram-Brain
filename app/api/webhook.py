@@ -1,14 +1,17 @@
 import os
 import requests
-from fastapi import APIRouter, Request, Response, status
+from fastapi import APIRouter, Request, Response, status, BackgroundTasks
 from app.db.supabase_client import get_db
 from app.services.gemini_service import analyze_and_extract, generate_rag_response
 from app.services.crypto_service import encrypt_text, decrypt_text
+from langfuse.decorators import observe, langfuse_context
+from app.services.eval_service import run_rag_evaluation
 
 router = APIRouter()
 
 @router.post("/telegram/webhook")
-async def telegram_webhook(request: Request):
+@observe(name="telegram_interaction")
+async def telegram_webhook(request: Request, background_tasks: BackgroundTasks):
     try:
         # --- 0. EXTRACT DATA & INITIALIZE DB ---
         payload = await request.json()
@@ -124,11 +127,23 @@ async def telegram_webhook(request: Request):
                 {"telegram_id": telegram_id, "role": "assistant", "content": final_answer}
             ]).execute()
 
-            # Send answer to Telegram
+            # --- 6. SEND TO TELEGRAM ---
             requests.post(f"https://api.telegram.org/bot{bot_token}/sendMessage", json={
                 "chat_id": telegram_id,
                 "text": final_answer
             })
+            
+            # --- 7. TRIGGER BACKGROUND EVALUATION ---
+            # Capture the master Langfuse Trace ID for this conversation
+            trace_id = langfuse_context.get_current_trace_id()
+            
+            # Convert retrieved notes to a single string for the judge
+            context_string = "\n".join(retrieved_notes) if isinstance(retrieved_notes, list) else str(retrieved_notes)
+            
+            # Hand the heavy lifting off to the background thread
+            background_tasks.add_task(run_rag_evaluation, trace_id, standalone_text, context_string, final_answer)
+            
+            # Instantly tell Telegram we are done so the webhook doesn't hang!
             return Response(status_code=status.HTTP_200_OK)
 
     except Exception as main_err:
