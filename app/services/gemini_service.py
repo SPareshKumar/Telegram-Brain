@@ -32,18 +32,20 @@ FALLBACK_MODELS = [
 ]
 
 @observe(name="master_analysis")
-def analyze_and_extract(text: str) -> dict:
+def analyze_and_extract(text: str, chat_context: str = "") -> dict:
     """
-    Consolidates Intent Classification and Graph Extraction into a single call,
-    with an intelligent fallback cascade to handle Google server overloads.
+    Consolidates Intent Classification, Graph Extraction, and Contextual Query Rewriting 
+    into a single efficient call.
     """
     prompt = f"""
-    Analyze the following text and perform TWO tasks:
-    1. Determine if the user is asking a question (query_data) or sharing information to be saved (store_data).
-    2. Extract a Knowledge Graph (nodes and edges) from the text.
+    Analyze the following text and perform THREE tasks:
+    1. Contextual Rewrite: If the user text contains pronouns (he, she, it, they, this) referencing the recent conversation, rewrite the text replacing the pronouns with the actual names. If it is already standalone, leave it identical.
+    2. Determine if the user is asking a question (query_data) or sharing information to be saved (store_data).
+    3. Extract a Knowledge Graph (nodes and edges) from the standalone text.
     
     Return ONLY a valid JSON object matching this exact schema:
     {{
+        "standalone_query": "The rewritten, context-aware text",
         "intent": "store_data" or "query_data",
         "is_sensitive": false,
         "summary": "Brief 5-word summary",
@@ -55,6 +57,9 @@ def analyze_and_extract(text: str) -> dict:
         ]
     }}
 
+    RECENT CONVERSATION (Use for pronoun resolution):
+    {chat_context if chat_context else "No recent conversation."}
+
     TEXT TO ANALYZE:
     {text}
     """
@@ -62,7 +67,7 @@ def analyze_and_extract(text: str) -> dict:
     # Iterate through our models from heaviest to lightest
     for attempt, model_name in enumerate(FALLBACK_MODELS):
         try:
-            print(f"🧠 Routing to {model_name}...")
+            print(f"🧠 Routing Analysis to {model_name}...")
             response = client.models.generate_content(
                 model=model_name,
                 contents=prompt,
@@ -75,19 +80,13 @@ def analyze_and_extract(text: str) -> dict:
         except Exception as e:
             error_msg = str(e)
             print(f"⚠️ {model_name} Failed: {error_msg}")
-            
-            # If it's a server overload (503) or rate limit (429), cascade to the next model
             if "503" in error_msg or "429" in error_msg:
                 if attempt < len(FALLBACK_MODELS) - 1:
-                    print("🔄 Cascading to next available model...")
-                    time.sleep(1) # Brief pause before hitting the next tier
+                    time.sleep(1)
                     continue 
-            
-            # If it's a strict coding bug (like 403 or 400), stop trying
             break
             
-    print("❌ Master Analysis completely failed across all models.")
-    return {"intent": "error", "is_sensitive": False, "summary": "System Error", "nodes": [], "edges": []}
+    return {"standalone_query": text, "intent": "error", "is_sensitive": False, "summary": "System Error", "nodes": [], "edges": []}
     
 
 @observe(name="generate_vector")

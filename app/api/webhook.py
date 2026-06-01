@@ -75,15 +75,24 @@ async def telegram_webhook_entry(request: Request):
             return Response(status_code=status.HTTP_200_OK)
 
         print(f"User {telegram_id} says: '{user_text[:50]}...'")
-        
-        # 4. Single-Pass AI Analysis (Intent + Graph combined!)
-        print("🧠 Analyzing intent and extracting graph entities...")
-        analysis = analyze_and_extract(user_text)
-        
-        intent_action = analysis.get("intent", "store_data")
-        is_sensitive = analysis.get("is_sensitive", False)
-        summary = analysis.get("summary", "User note")
-        
+
+        # --- 1. FETCH SHORT-TERM MEMORY (EARLY PULL) ---
+        history_res = db.table("chat_history").select("role, content").eq("telegram_id", telegram_id).order("created_at", desc=True).limit(5).execute()
+        recent_messages = history_res.data[::-1]
+        chat_context = "\n".join([f"{msg['role'].capitalize()}: {msg['content']}" for msg in recent_messages])
+
+        # --- 2. INTENT & GRAPH ANALYSIS (WITH QUERY REWRITE) ---
+        print(f"📝 Raw User Text: {user_text}")
+        ai_response = analyze_and_extract(user_text, chat_context=chat_context)
+
+        intent_action = ai_response.get("intent", "query_data")
+        is_sensitive = ai_response.get("is_sensitive", False)
+        summary = ai_response.get("summary", "New Memory")
+
+        # EXTRACT THE REWRITTEN QUERY
+        standalone_text = ai_response.get("standalone_query", user_text)
+        print(f"🎯 Standalone Query: {standalone_text}")
+
         print(f"🧠 AI Decision -> Action: {intent_action} | Sensitive: {is_sensitive}")
         
         db = get_db()
@@ -135,8 +144,8 @@ async def telegram_webhook_entry(request: Request):
                 vector_array = generate_embedding(safe_label)
 
                 # --- GRAPH INGESTION (Now using our consolidated data!) ---
-                nodes_data = analysis.get("nodes", [])
-                edges_data = analysis.get("edges", [])
+                nodes_data = ai_response.get("nodes", [])
+                edges_data = ai_response.get("edges", [])
 
                 if vector_array:
                     db.table("note_embeddings").insert({
@@ -186,8 +195,8 @@ async def telegram_webhook_entry(request: Request):
                     }).execute()
                     
                 # --- GRAPH INGESTION (Now using our consolidated data!) ---
-                nodes_data = analysis.get("nodes", [])
-                edges_data = analysis.get("edges", [])
+                nodes_data = ai_response.get("nodes", [])
+                edges_data = ai_response.get("edges", [])
                 
                 if nodes_data:
                     for node in nodes_data:
@@ -213,7 +222,7 @@ async def telegram_webhook_entry(request: Request):
             print("🔍 Query detected. Initiating HYBRID search...")
             
             # --- 1. VECTOR SEARCH (Semantic) ---
-            query_vector = generate_embedding(user_text)
+            query_vector = generate_embedding(standalone_text)
             rpc_response = db.rpc(
                 'match_notes', 
                 {
@@ -261,10 +270,10 @@ async def telegram_webhook_entry(request: Request):
             # map graph_context to graph_relationships for the new API
             graph_relationships = graph_context
             final_answer = generate_rag_response(
-                question=user_text, 
+                question=standalone_text, 
                 context_notes=retrieved_notes, 
                 graph_context=graph_relationships,
-                chat_context=chat_context # Pass the new context here
+                chat_context=chat_context
             )
             
             # --- 5. SAVE NEW INTERACTION TO SHORT-TERM MEMORY ---
