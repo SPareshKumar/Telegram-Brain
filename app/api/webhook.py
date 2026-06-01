@@ -12,26 +12,34 @@ from app.services.crypto_service import encrypt_text, decrypt_text
 router = APIRouter(prefix="/telegram", tags=["Telegram Webhook"])
 logger = logging.getLogger("app.webhook")
 
-@router.post("/webhook")
-async def telegram_webhook_entry(request: Request):
-    """
-    Receives incoming messages from Telegram, processes multimodal attachments,
-    routes them via AI, and interacts with the Supabase pgvector database.
-    """
-    try:
-        payload = await request.json()
-        message_data = payload.get("message", {})
-        telegram_id = message_data.get("from", {}).get("id")
-        username = message_data.get("from", {}).get("username", "unknown")
-        
-        # Security drop for empty payloads
-        if not telegram_id:
-            return Response(status_code=status.HTTP_200_OK)
+@router.post("/telegram/webhook")
+async def telegram_webhook(request: Request):
+    # --- 0. EXTRACT DATA & INITIALIZE DB ---
+    payload = await request.json()
 
+    # Safely extract message data (adapt this to your exact extraction logic)
+    message = payload.get("message", {})
+    telegram_id = message.get("from", {}).get("id")
+    user_text = message.get("text", "")
+
+    if not telegram_id or not user_text:
+        return Response(status_code=status.HTTP_200_OK)
+
+    # 🚨 THE FIX: Initialize the database connection HERE, before anything else!
+    db = get_db()
+
+    # --- 1. FETCH SHORT-TERM MEMORY (EARLY PULL) ---
+    history_res = db.table("chat_history").select("role, content").eq("telegram_id", telegram_id).order("created_at", desc=True).limit(5).execute()
+    recent_messages = history_res.data[::-1]
+    chat_context = "\n".join([f"{msg['role'].capitalize()}: {msg['content']}" for msg in recent_messages])
+
+    # --- 2. INTENT & GRAPH ANALYSIS (WITH QUERY REWRITE) ---
+    # ... (the rest of your code continues normally)
+
+    try:
         print(f"\n--- NEW INCOMING MESSAGE ---")
-        
-        user_text = message_data.get("text", "")
-        caption = message_data.get("caption", "")
+        caption = message.get("caption", "")
+        username = message.get("from", {}).get("username", "unknown")
         
         file_id = None
         file_ext = ""
