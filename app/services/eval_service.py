@@ -1,12 +1,13 @@
 import json
-# 🚨 THE V3 FIX: Use get_client again
 from langfuse import get_client
 from app.services.gemini_service import client, types 
+# 🔌 Import your database utility
+from app.db.supabase_client import get_db
 
-# Initialize the client
 langfuse = get_client()
 
-def run_rag_evaluation(trace_id: str, query: str, context: str, response: str):
+# 🧠 Added telegram_id argument here
+def run_rag_evaluation(trace_id: str, telegram_id: int, query: str, context: str, response: str):
     print(f"⚖️ Running background evaluation for trace: {trace_id}")
     
     prompt = f"""
@@ -39,7 +40,6 @@ def run_rag_evaluation(trace_id: str, query: str, context: str, response: str):
         
         scores = json.loads(eval_response.text)
         
-        # 🚨 THE SMOKING GUN: It is create_score(), not score()! 🚨
         if trace_id:
             langfuse.create_score(
                 trace_id=trace_id,
@@ -53,11 +53,20 @@ def run_rag_evaluation(trace_id: str, query: str, context: str, response: str):
                 value=float(scores.get("groundedness", 0)),
                 comment=scores.get("reasoning", "")
             )
-            
-            # V3 uses flush() to force the background thread to send the API request immediately
             langfuse.flush()
             
         print(f"📊 Eval Complete: Relevance [{scores.get('context_relevance')}] | Groundedness [{scores.get('groundedness')}]")
+        
+        # 💾 WRITE TARGET TELEMETRY TO SUPABASE
+        db = get_db()
+        db.table("evaluation_logs").insert({
+            "telegram_id": telegram_id,
+            "query": query,
+            "response": response,
+            "context_relevance": float(scores.get("context_relevance", 0)),
+            "groundedness": float(scores.get("groundedness", 0)),
+            "reasoning": scores.get("reasoning", "")
+        }).execute()
         
     except Exception as e:
         print(f"⚠️ Background evaluation failed: {str(e)}")

@@ -102,7 +102,7 @@ async def telegram_webhook(request: Request, background_tasks: BackgroundTasks):
                 current_op.update(output=final_answer) 
                 context_string = "\n".join(retrieved_notes)
                 
-                background_tasks.add_task(run_rag_evaluation, trace_id, standalone_text, context_string, final_answer)
+                background_tasks.add_task(run_rag_evaluation, trace_id, telegram_id, standalone_text, context_string, final_answer)
                 return Response(status_code=status.HTTP_200_OK)
 
     except Exception as main_err:

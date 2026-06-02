@@ -29,6 +29,18 @@ async def get_user_graph(telegram_id: int):
     graph_data["nodes"] = unique_nodes
     return graph_data
 
+# 🚀 NEW ROUTE: Fetch Telemetry logs from Supabase
+@router.get("/api/logs/{telegram_id}")
+async def get_telemetry_logs(telegram_id: int):
+    db = get_db()
+    logs_res = db.table("evaluation_logs")\
+                 .select("created_at, query, response, context_relevance, groundedness, reasoning")\
+                 .eq("telegram_id", telegram_id)\
+                 .order("created_at", desc=True)\
+                 .limit(5)\
+                 .execute()
+    return logs_res.data
+
 @router.get("/dashboard/{telegram_id}")
 async def view_dashboard(telegram_id: int):
     html_content = f"""
@@ -72,7 +84,8 @@ async def view_dashboard(telegram_id: int):
                 position: absolute;
                 top: 24px;
                 left: 24px;
-                width: 280px;
+                width: 320px;
+                max-height: calc(100vh - 80px);
                 background: var(--panel-bg);
                 backdrop-filter: blur(12px);
                 -webkit-backdrop-filter: blur(12px);
@@ -81,6 +94,8 @@ async def view_dashboard(telegram_id: int):
                 padding: 24px;
                 z-index: 10;
                 box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+                display: flex;
+                flex-direction: column;
             }}
             
             h1 {{
@@ -116,6 +131,72 @@ async def view_dashboard(telegram_id: int):
                 font-family: 'JetBrains Mono', monospace;
                 font-weight: 600;
             }}
+
+            /* 🎛️ COCKPIT LOG STYLES */
+            .logs-title {{
+                font-size: 14px;
+                font-weight: 600;
+                text-transform: uppercase;
+                letter-spacing: 0.05em;
+                color: var(--accent-blue);
+                margin-top: 24px;
+                margin-bottom: 12px;
+                border-top: 1px solid var(--border-color);
+                padding-top: 16px;
+            }}
+
+            .log-stream {{
+                flex-grow: 1;
+                overflow-y: auto;
+                padding-right: 4px;
+            }}
+
+            .log-card {{
+                background: rgba(255, 255, 255, 0.03);
+                border: 1px solid var(--border-color);
+                border-radius: 6px;
+                padding: 12px;
+                margin-bottom: 12px;
+                font-size: 12px;
+            }}
+
+            .log-query {{
+                font-weight: 600;
+                color: #ffffff;
+                margin-bottom: 4px;
+            }}
+
+            .log-metrics {{
+                display: flex;
+                gap: 12px;
+                margin-top: 8px;
+                font-family: 'JetBrains Mono', monospace;
+                font-size: 11px;
+            }}
+
+            .metric-badge {{
+                padding: 2px 6px;
+                border-radius: 4px;
+                background: rgba(56, 189, 248, 0.1);
+                color: var(--accent-blue);
+            }}
+
+            .metric-badge.good {{
+                background: rgba(16, 185, 129, 0.1);
+                color: #10b981;
+            }}
+
+            .metric-badge.bad {{
+                background: rgba(239, 68, 68, 0.1);
+                color: #ef4444;
+            }}
+            
+            .log-reasoning {{
+                font-size: 11px;
+                color: var(--text-secondary);
+                margin-top: 6px;
+                font-style: italic;
+            }}
         </style>
     </head>
     <body>
@@ -133,11 +214,18 @@ async def view_dashboard(telegram_id: int):
                     <span class="stat-value" id="node-count">...</span>
                 </div>
             </div>
+
+            <!-- 📡 LOG CONSOLE HOLDER -->
+            <div class="logs-title">RAG Observability Telemetry</div>
+            <div class="log-stream" id="log-stream">
+                <div style="color: var(--text-secondary); font-size: 12px;">Awaiting telemetry frame...</div>
+            </div>
         </div>
         
         <div id="graph-container"></div>
 
         <script>
+            // Fetch Graph Structure
             fetch('/ui/api/graph/{telegram_id}')
                 .then(res => res.json())
                 .then(data => {{
@@ -150,45 +238,34 @@ async def view_dashboard(telegram_id: int):
                         .linkWidth(1.5)
                         .linkColor(() => 'rgba(255, 255, 255, 0.15)')
                         .backgroundColor('#080b10')
-                        .cooldownTicks(Infinity) // Prevents the engine from freezing, fixing the drag bug
+                        .cooldownTicks(Infinity)
                         .onNodeDragEnd(node => {{
-                            // Pin node where dropped
                             node.fx = node.x;
                             node.fy = node.y;
                         }})
                         .onNodeClick(node => {{
-                            // Unpin node on click so it floats back into the cluster
                             node.fx = undefined;
                             node.fy = undefined;
                         }});
 
-                    // 1. Base physics: nodes repel strongly so they don't clump
                     Graph.d3Force('charge').strength(-250);
                     Graph.d3Force('link').distance(50).strength(0.2);
                     
-                    // 2. Custom Brain Geometry Force
                     Graph.d3Force('brain-lobes', (alpha) => {{
                         data.nodes.forEach((node, index) => {{
-                            // Designate 1 in every 5 nodes to pull downwards forming a "stem"
                             const isStem = index % 5 === 0;
-                            // Split the remaining nodes into left and right hemispheres
                             const isLeft = index % 2 === 0;
-                            
                             let targetX = isLeft ? -90 : 90;
                             let targetY = -40;
-                            
                             if (isStem) {{
                                 targetX = 0;
                                 targetY = 120;
                             }}
-
-                            // Apply the pull
                             node.vx += (targetX - node.x) * 0.05 * alpha;
                             node.vy += (targetY - node.y) * 0.05 * alpha;
                         }});
                     }});
 
-                    // 3. Hover & Label Rendering
                     let hoveredNode = null;
                     Graph.onNodeHover(node => {{
                         container.style.cursor = node ? 'pointer' : 'default';
@@ -198,36 +275,59 @@ async def view_dashboard(telegram_id: int):
                     Graph.nodeCanvasObject((node, ctx, globalScale) => {{
                         const isSecure = node.group === "SECURE_VAULT";
                         const isHovered = hoveredNode === node;
-                        
-                        let coreColor = isSecure ? '#ef4444' : '#3b82f6'; // Clean red or blue
-                        if (node.group === "Technology" || node.group === "Stack") coreColor = '#8b5cf6'; // Purple
-                        if (node.group === "Concept") coreColor = '#10b981'; // Green
+                        let coreColor = isSecure ? '#ef4444' : '#3b82f6';
+                        if (node.group === "Technology" || node.group === "Stack") coreColor = '#8b5cf6';
+                        if (node.group === "Concept") coreColor = '#10b981';
                         
                         const radius = isHovered ? 6 : 4;
-                        
-                        // Node circle
                         ctx.beginPath();
                         ctx.arc(node.x, node.y, radius, 0, 2 * Math.PI, false);
                         ctx.fillStyle = coreColor;
                         ctx.fill();
                         
-                        // Label rendering
                         const rawLabel = node.id.replace("[SECURE_VAULT_REF] ", "🔒 ");
                         const label = rawLabel.length > 25 ? rawLabel.substring(0, 22) + '...' : rawLabel;
-                        
                         const fontSize = isHovered ? 14 / globalScale : 12 / globalScale;
                         ctx.font = `${{fontSize}}px 'Inter'`;
                         ctx.textAlign = 'center';
                         ctx.textBaseline = 'top';
                         
-                        // Background shadow for text readability
                         ctx.fillStyle = 'rgba(8, 11, 16, 0.9)';
                         const textWidth = ctx.measureText(label).width;
                         ctx.fillRect(node.x - textWidth/2 - 2, node.y + radius + 2, textWidth + 4, fontSize + 4);
                         
-                        // Text itself
                         ctx.fillStyle = isHovered ? '#ffffff' : '#9ca3af';
                         ctx.fillText(label, node.x, node.y + radius + 4);
+                    }});
+                }})
+                .catch(err => console.error(err));
+
+            // 📡 FETCH AND INJECT LIVE REAL-TIME TELEMETRY LOGS
+            fetch('/ui/api/logs/{telegram_id}')
+                .then(res => res.json())
+                .then(logs => {{
+                    const stream = document.getElementById('log-stream');
+                    if(logs.length === 0) {{
+                        stream.innerHTML = '<div style="color: var(--text-secondary); font-size: 12px;">No evaluation traces compiled yet.</div>';
+                        return;
+                    }}
+                    stream.innerHTML = '';
+                    logs.forEach(log => {{
+                        const relClass = log.context_relevance >= 0.7 ? 'good' : (log.context_relevance <= 0.3 ? 'bad' : '');
+                        const grdClass = log.groundedness >= 0.7 ? 'good' : (log.groundedness <= 0.3 ? 'bad' : '');
+                        
+                        const card = document.createElement('div');
+                        card.className = 'log-card';
+                        card.innerHTML = `
+                            <div class="log-query">🔮 Q: "${{log.query}}"</div>
+                            <div style="color: var(--text-secondary); line-height: 1.4;">🤖 A: ${{log.response.substring(0, 60)}}${{log.response.length > 60 ? '...' : ''}}</div>
+                            <div class="log-metrics">
+                                <span class="metric-badge ${{relClass}}">CR: ${{log.context_relevance.toFixed(2)}}</span>
+                                <span class="metric-badge ${{grdClass}}">GD: ${{log.groundedness.toFixed(2)}}</span>
+                            </div>
+                            <div class="log-reasoning">⚖️ ${{log.reasoning || 'No metadata reasoning available.'}}</div>
+                        `;
+                        stream.appendChild(card);
                     }});
                 }})
                 .catch(err => console.error(err));
